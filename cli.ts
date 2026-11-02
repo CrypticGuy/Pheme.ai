@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { account, bootstrap, liveSession, signIn, signOut, signUp } from './auth-client.js';
-import { BrokerClient } from './client.js';
+import { ApiError, BrokerClient } from './client.js';
 import { configPath, loadConfig, saveConfig, type Saved, type Session } from './config.js';
+import type { Review } from './store.js';
 
 const usage = `Pheme account CLI
 
@@ -17,6 +19,8 @@ const usage = `Pheme account CLI
   pheme connect EMAIL           connect with someone so you can ask them for feedback; if they have not
                                 joined yet, you are connected when they do
   pheme connections             list who you are connected with and who is still pending
+  pheme pending [--json]        reviews waiting on you, and the ones you are waiting on
+  pheme install-skill           add the /pheme-pending skill to Claude Code for all your projects
   pheme whoami                  show your login and handle
   pheme rotate                  replace your bridge token (the old one stops working)
   pheme logout                  forget the login on this machine
@@ -166,6 +170,51 @@ async function connections() {
   console.log(`Connected (${people.length}):\n${people.map(p => `  ${p.id} (${p.name})`).join('\n') || '  nobody yet'}`);
   if (pending.length) console.log(`Waiting for them to join:\n${pending.map(e => `  ${e}`).join('\n')}`);
 }
+// Titles come from other people: strip control characters so they cannot drive the terminal.
+const plain = (s: string, n = 70) => { const t = s.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+const ago = (iso: string) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  return m < 60 ? `${m}m ago` : m < 2880 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
+/** Sorts unresolved reviews by who has to act next. Read-only: nothing is recorded. */
+function sortPending(me: string, reviews: Review[]) {
+  const row = (r: Review, todo: string) => ({ id: r.id, title: r.title, from: r.owner, to: r.recipient, state: r.state, verdict: r.response?.verdict, created: r.createdAt, todo });
+  return {
+    yourVerdict: reviews.filter(r => r.recipient === me && r.state === 'pending').map(r => row(r, 'give your verdict')),
+    yourClose: reviews.filter(r => r.owner === me && r.state === 'responded').map(r => row(r, 'close it or hand it to Claude')),
+    waitingOnOthers: reviews.filter(r => r.owner === me && r.state === 'pending').map(r => row(r, `waiting for ${r.recipient}`))
+  };
+}
+async function pending(json: boolean) {
+  const cfg = loadConfig();
+  const { reviews } = await broker().call<{ reviews: Review[] }>('/reviews').catch(err => {
+    if (err instanceof ApiError && err.status === 401) throw new Error('This machine\'s token was replaced or revoked. Run: pheme join <your Pheme URL>');
+    throw err;
+  });
+  const groups = sortPending(cfg.handle!, reviews);
+  if (json) { console.log(JSON.stringify({ handle: cfg.handle, ...groups }, null, 2)); return; }
+  const show = (label: string, rows: ReturnType<typeof sortPending>['yourVerdict'], who: (r: (typeof rows)[number]) => string) => {
+    console.log(`\n${label} (${rows.length})`);
+    if (!rows.length) { console.log('  nothing'); return; }
+    for (const r of rows) console.log(`  ${r.id.slice(0, 8)}  "${plain(r.title)}"  ${who(r)}, ${ago(r.created)}`);
+  };
+  console.log(`Pending reviews for ${cfg.handle}`);
+  show('Waiting on your verdict', groups.yourVerdict, r => `from ${r.from}`);
+  show('Answered, waiting for you to close', groups.yourClose, r => `${r.to} said ${r.verdict}`);
+  show('Waiting on someone else', groups.waitingOnOthers, r => `sent to ${r.to}`);
+  if (groups.yourVerdict.length || groups.yourClose.length) console.log('\nTo answer, ask Claude (started with claude-pheme): "open review <id>".');
+}
+// Copies the bundled skill into the user-level Claude skills folder, pointing it at this install of the CLI.
+function installSkill() {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = join(here, '..', 'skills', 'pheme-pending', 'SKILL.md');
+  if (!existsSync(source)) throw new Error(`Skill file not found at ${source}`);
+  const cli = `"${process.execPath}" "${join(here, 'cli.js')}"`;
+  const dir = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'skills', 'pheme-pending');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), readFileSync(source, 'utf8').replaceAll('{{PHEME_CLI}}', cli));
+  console.log(`Installed /pheme-pending in ${dir}.\nIn any Claude Code session, run /pheme-pending or ask "what reviews are waiting on me?".`);
+}
 async function whoami() {
   const { cfg, token } = await liveSession();
   const me = await account<{ id: string; name: string }>(cfg, token, 'GET', '/me').catch(() => null);
@@ -186,7 +235,8 @@ async function logout() {
 
 const [command, ...rest] = process.argv.slice(2);
 try {
-  const f = flags(rest);
+  // --json is a switch, not a --flag value pair.
+  const json = rest.includes('--json'), f = flags(rest.filter(a => a !== '--json'));
   if (command === 'join') await joinCommand(f);
   else if (command === 'signup') await signup(f);
   else if (command === 'login') await login(f);
@@ -194,6 +244,8 @@ try {
   else if (command === 'setup') { setup(f); console.log('Launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme'); }
   else if (command === 'connect') await connect(process.argv[3]);
   else if (command === 'connections') await connections();
+  else if (command === 'pending') await pending(json);
+  else if (command === 'install-skill') installSkill();
   else if (command === 'whoami') await whoami();
   else if (command === 'rotate') await rotate();
   else if (command === 'logout') await logout();

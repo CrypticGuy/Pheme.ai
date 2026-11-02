@@ -55,6 +55,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "!dist/*.test.js",
     "!dist/smoke-*.js",
     "!dist/e2e-*.js"

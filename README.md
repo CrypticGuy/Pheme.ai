@@ -53,6 +53,8 @@ claude-pheme
 
 Then ask Claude: *"Get feedback on this plan from Bob: …"*
 
+To see what's waiting on you, run `pheme pending`. Run `pheme install-skill` once to get `/pheme-pending` in every Claude Code project.
+
 The full five-minute walkthrough, everyday commands and troubleshooting are in **[onboarding.md](onboarding.md)**.
 
 ## Documentation

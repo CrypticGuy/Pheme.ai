@@ -77,12 +77,30 @@ If you're the reviewer, Claude will tell you a review is waiting. Ask it to open
 
 Review text from other people is shown to Claude as untrusted data. Don't approve something just because the text asks you to.
 
+## See what's waiting on you
+
+```bash
+pheme pending
+```
+
+This lists the reviews waiting on your verdict, the answered ones waiting for you to close, and the ones you sent that nobody has answered yet. It only reads, so it's safe to run any time, even when Claude isn't open.
+
+To get the same view inside Claude Code in every project, install the skill once:
+
+```bash
+pheme install-skill
+```
+
+Then type `/pheme-pending` in any Claude Code session, or ask "what reviews are waiting on me?". Run `pheme install-skill` again after you update or move Pheme.
+
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
 | `pheme connect <email>` | Connect with someone (now, or when they join) |
 | `pheme connections` | Who you're connected with, and who is pending |
+| `pheme pending` | Reviews waiting on you, and the ones you're waiting on (`--json` for scripts) |
+| `pheme install-skill` | Add the `/pheme-pending` skill to Claude Code for all your projects |
 | `pheme whoami` | Your login and handle |
 | `pheme rotate` | New token (the old one stops working). Restart Claude afterwards |
 | `pheme logout` | Forget the login on this machine |

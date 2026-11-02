@@ -79,7 +79,7 @@ try {
   b.setRequestHandler(ElicitRequestSchema, async () => { bobForms++; return { action: 'accept', content: { verdict: 'approve', feedback: 'e2e human' } }; });
   a.setRequestHandler(ElicitRequestSchema, async () => { aliceForms++; return { action: 'accept', content: { action: 'hand_to_agent', note: 'e2e owner' } }; });
   await a.connect(bridgeTransport(alice)); await b.connect(bridgeTransport(bob)); await c.connect(bridgeTransport(carol));
-  assert.deepEqual((await a.listTools()).tools.map(t => t.name).sort(), ['finalize_review', 'list_pending', 'list_people', 'present_review', 'request_review']);
+  assert.deepEqual((await a.listTools()).tools.map(t => t.name).sort(), ['finalize_review', 'list_pending', 'list_people', 'present_review', 'request_review', 'show_review']);
 
   // "Get feedback from Bob": the agent resolves the name through its connections, not a global directory.
   const people = data(await a.callTool({ name: 'list_people', arguments: {} })).people as { id: string; name: string }[];
