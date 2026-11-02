@@ -19,7 +19,8 @@
     "smoke:supabase": "npm run build && node dist/smoke-supabase.js",
     "pheme": "node dist/cli.js",
     "invite": "node dist/invite.js",
-    "smoke:auth": "npm run build && node dist/smoke-auth.js"
+    "smoke:auth": "npm run build && node dist/smoke-auth.js",
+    "e2e:supabase": "npm run build && node dist/e2e-supabase.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
