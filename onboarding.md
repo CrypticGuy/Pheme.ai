@@ -231,25 +231,55 @@ Each client sets `PHEME_URL` to `https://<ref>.supabase.co/functions/v1/pheme` a
 
 Local and hosted databases are separate, so tokens do not carry over; provision again after moving.
 
-## Part 7. Self-service accounts (`pheme` CLI)
+## Part 7. Accounts, email allowlist and connections (`pheme` CLI)
 
-Instead of the admin handing out tokens, each person signs up with email and password (Supabase Auth), claims a handle with a single-use invite code, and gets a bridge token stored in `~/.pheme/config.json` (override the folder with `PHEME_HOME`). The bridge reads that file when `PHEME_TOKEN` is unset, so `.mcp.json` holds no secret. Invites stop strangers who find the public URL from creating accounts.
+Each person signs in with Supabase Auth (email and password), gets a handle and a bridge token stored in `~/.pheme/config.json` (override the folder with `PHEME_HOME`). The bridge reads that file when `PHEME_TOKEN` is unset, so `.mcp.json` holds no secret.
 
-Admin, per person (needs the service-role key; never share it):
+Two admin-controlled gates apply:
+- **Allowlist.** Only emails the admin has added can claim a handle. The email must be confirmed, so nobody can claim an address they do not own. Keep email confirmation on for hosted projects.
+- **Connections.** A person can only send reviews to people they are connected with. `list_people` shows an agent only those connections, so "get feedback from Bob" resolves among them.
 
-```bash
-PHEME_SUPABASE_URL=https://<ref>.supabase.co PHEME_SUPABASE_SERVICE_ROLE_KEY=<key> npm run invite -- "for Bob"
-```
-
-The printed code is single-use; send it privately. Each person, after `npm install && npm run build`:
+### Admin (needs the service-role key; never share it)
 
 ```bash
-npm run pheme -- signup --url https://<ref>.supabase.co/functions/v1/pheme
-npm run pheme -- login                      # only needed if signup asked you to confirm your email first
-npm run pheme -- register --handle bob --invite <code>
-npm run pheme -- setup                      # writes .mcp.json in the current folder
+export PHEME_SUPABASE_URL=https://<ref>.supabase.co
+export PHEME_SUPABASE_SERVICE_ROLE_KEY=<key>
+npm run admin -- invite bob@example.com --with alice,carol   # allow Bob; connect him to these handles when he joins
+npm run admin -- connect alice bob                            # connect two people who are already registered
+npm run admin -- people                                       # list people, connections and pending invites
 ```
 
-Then launch Claude with the channel flag (Part 4). Other commands: `whoami`, `rotate` (new token, old one revoked), `logout`. Non-interactive use: set `PHEME_PASSWORD` and pass flags.
+On PowerShell set the two variables with `$env:NAME='value'`. `--with` is optional. People who registered before connections existed were all connected to each other by the migration.
 
-Notes: hosted projects require email confirmation by default, and the built-in mailer is heavily rate limited; configure custom SMTP in the Supabase dashboard for more than a few sign-ups per hour. For the local stack, use `PHEME_SUPABASE_URL=http://127.0.0.1:55321` because the function reports a docker-internal Auth address. `npm run smoke:auth` exercises the whole flow locally. Handles provisioned earlier with `npm run provision` keep working but have no login attached.
+### Each person: one command
+
+```bash
+git clone https://github.com/CrypticGuy/Pheme.ai.git && cd Pheme.ai && npm install && npm run build
+npm run pheme -- join https://<ref>.supabase.co/functions/v1/pheme
+```
+
+`join` asks for email, password, handle and display name, then signs up (or logs in), waits for you to click the confirmation email if the project requires it, claims the handle, and writes `.mcp.json` in the current folder (`--dir` to change). It is safe to run again, and on a new machine it issues a fresh token. Then start Claude with the Pheme channel:
+
+```bash
+npm link        # once, in the Pheme repo: installs the claude-pheme command
+claude-pheme    # registers the bridge at user scope on first run, then starts Claude
+```
+
+`claude-pheme` works from any folder, so `.mcp.json` is optional. Without it, launch Claude from the folder `join` wrote `.mcp.json` into: `MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme`.
+
+Ask Claude for example: "get feedback on this plan from Bob". It calls `list_people`, matches the name (and asks you if it matches nobody or several), calls `request_review`, and Bob's session is pinged. When Bob answers, you get a `review_responded` event and `finalize_review` shows his response.
+
+Other commands: `whoami`, `rotate` (new token, old one revoked), `logout`, and the individual steps `signup`, `login`, `register`, `setup`. Non-interactive use: set `PHEME_PASSWORD` and pass `--email`, `--handle`, `--name`.
+
+### Tests
+
+```bash
+npm run supabase:start && npm run supabase:serve   # local stack (Docker); serve stays running
+npm run smoke:supabase   # API lifecycle and connection checks
+npm run smoke:auth       # sign-up, allowlist, registration, connections, rotation
+npm run e2e:supabase     # real CLI and real bridges: join, find by name, full review, rotate, logout
+```
+
+Run the last two against a hosted project by setting the two admin variables above first. They then create pre-confirmed test users (no emails) and delete everything they created. For the local stack, the CLI needs `PHEME_SUPABASE_URL=http://127.0.0.1:55321` because the function reports a docker-internal Auth address.
+
+The built-in mailer sends only a few confirmation emails per hour; configure custom SMTP in the Supabase dashboard for more. The confirmation link currently redirects to `localhost:3000` (the project's Site URL): the account is confirmed anyway, so ignore that page.

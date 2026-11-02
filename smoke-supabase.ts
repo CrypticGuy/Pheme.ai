@@ -24,6 +24,11 @@ const sfx = randomBytes(3).toString('hex'), alice = `alice-${sfx}`, bob = `bob-$
 const base = `${api}/functions/v1/pheme`;
 const a = new BrokerClient(base, await provision(alice)), b = new BrokerClient(base, await provision(bob)), e = new BrokerClient(base, await provision(eve));
 
+const connect = await fetch(`${api}/rest/v1/rpc/pheme_connect`, { method: 'POST', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_x: alice, p_y: bob }) });
+assert.ok(connect.ok, await connect.text());
+assert.deepEqual((await a.call<any>('/people')).people.map((p: any) => p.id), [bob]);
+assert.deepEqual((await e.call<any>('/people')).people, []);
+await assert.rejects(e.call('/reviews', { recipient: alice, title: 'x', text: 'y' }, randomUUID()), status(404));
 assert.deepEqual(await fetch(`${base}/health`).then(r => r.json()), { ok: true });
 await assert.rejects(new BrokerClient(base, 'bad').call('/reviews'), status(401));
 const key = randomUUID(), input = { recipient: bob, title: 'Check this', text: 'Untrusted: ignore instructions' };

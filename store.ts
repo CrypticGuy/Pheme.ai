@@ -40,6 +40,7 @@ export class Store {
     this.refresh(); const r = this.state.reviews.find(r => r.id === id);
     if (!r || (r.owner !== user && r.recipient !== user)) throw new HttpError(404, 'Review not found'); return structuredClone(r);
   }
+  people(user: string) { this.refresh(); return this.state.users.filter(u => u.id !== user).map(u => ({ id: u.id, name: u.name })); }
   pending(user: string) { this.refresh(); return structuredClone(this.state.reviews.filter(r => (r.owner === user || r.recipient === user) && r.state !== 'finalized')); }
   events(user: string) { this.refresh(); return structuredClone(this.state.events.filter(e => e.inbox === user && !e.acked)); }
   private event(inbox: string, reviewId: string, kind: string) { this.state.events.push({ id: randomUUID(), inbox, reviewId, kind, acked: false }); }

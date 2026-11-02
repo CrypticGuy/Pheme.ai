@@ -10,7 +10,7 @@ class HttpError extends Error { constructor(public status: number, message: stri
 const version = z.number().int().positive();
 const create = z.object({ recipient: z.string().min(1).max(80), title: z.string().min(1).max(200), text: z.string().min(1).max(50_000) }).strict();
 const respond = z.object({ version, verdict: z.enum(['approve', 'request_changes', 'comment']), feedback: z.string().max(10_000).optional() }).strict();
-const registerBody = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(80), invite: z.string().min(8).max(200) }).strict();
+const registerBody = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(80) }).strict();
 const finalize = z.object({ version, action: z.enum(['close', 'hand_to_agent']), note: z.string().max(10_000).optional() }).strict();
 
 async function rpc(fn: string, args: Record<string, unknown>) {
@@ -48,7 +48,9 @@ Deno.serve(async req => {
       if (req.method === 'GET' && path === '/me') account = await rpc('pheme_me', { p_auth: authId });
       else if (req.method === 'POST' && path === '/register') {
         const d = registerBody.parse(await body(req)), token = newToken();
-        await rpc('pheme_register', { p_auth: authId, p_handle: d.handle, p_name: d.name, p_invite_hash: await sha256(d.invite), p_token_hash: await sha256(token) });
+        // Only a confirmed email may claim an allowlist entry, so nobody can register as someone else's address.
+        if (!data.user.email || !data.user.email_confirmed_at) throw new HttpError(403, 'Confirm your email address first');
+        await rpc('pheme_register', { p_auth: authId, p_email: data.user.email, p_handle: d.handle, p_name: d.name, p_token_hash: await sha256(token) });
         account = { id: d.handle, name: d.name, token };
       } else if (req.method === 'POST' && path === '/token/rotate') {
         const token = newToken();
@@ -66,7 +68,8 @@ Deno.serve(async req => {
         events = (await rpc('pheme_events', { p_user: user.id })) as unknown[];
       }
       result = { events };
-    } else if (req.method === 'GET' && path === '/reviews') result = { reviews: await rpc('pheme_pending', { p_user: user.id }) };
+    } else if (req.method === 'GET' && path === '/people') result = { people: await rpc('pheme_people', { p_user: user.id }) };
+    else if (req.method === 'GET' && path === '/reviews') result = { reviews: await rpc('pheme_pending', { p_user: user.id }) };
     else if (req.method === 'GET' && /^\/reviews\/[^/]+$/.test(path)) result = await rpc('pheme_get_review', { p_id: id, p_user: user.id });
     else if (req.method === 'POST' && /^\/events\/[^/]+\/ack$/.test(path)) result = await rpc('pheme_ack', { p_id: id, p_user: user.id });
     else if (req.method === 'POST') {

@@ -9,6 +9,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test dist/*.test.js",
     "broker": "node dist/broker.js",
@@ -18,9 +19,9 @@
     "supabase:serve": "npx supabase functions serve --no-verify-jwt",
     "smoke:supabase": "npm run build && node dist/smoke-supabase.js",
     "pheme": "node dist/cli.js",
-    "invite": "node dist/invite.js",
     "smoke:auth": "npm run build && node dist/smoke-auth.js",
-    "e2e:supabase": "npm run build && node dist/e2e-supabase.js"
+    "e2e:supabase": "npm run build && node dist/e2e-supabase.js",
+    "admin": "node dist/admin.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -31,6 +32,13 @@
     "typescript": "^5.9.3"
   },
   "bin": {
-    "pheme": "dist/cli.js"
-  }
+    "pheme": "dist/cli.js",
+    "claude-pheme": "dist/claude-pheme.js"
+  },
+  "files": [
+    "dist",
+    "!dist/*.test.js",
+    "!dist/smoke-*.js",
+    "!dist/e2e-*.js"
+  ]
 }

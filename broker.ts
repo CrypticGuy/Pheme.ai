@@ -29,7 +29,8 @@ export function createBroker(store: Store) {
           events = store.events(user.id);
         }
         result = { events };
-      } else if (req.method === 'GET' && url.pathname === '/reviews') result = { reviews: store.pending(user.id) };
+      } else if (req.method === 'GET' && url.pathname === '/people') result = { people: store.people(user.id) };
+      else if (req.method === 'GET' && url.pathname === '/reviews') result = { reviews: store.pending(user.id) };
       else if (req.method === 'GET' && /^\/reviews\/[^/]+$/.test(url.pathname)) result = store.getReview(url.pathname.split('/')[2], user.id);
       else if (req.method === 'POST' && /^\/events\/[^/]+\/ack$/.test(url.pathname)) result = store.ack(url.pathname.split('/')[2], user.id);
       else if (req.method === 'POST') {
