@@ -8,7 +8,7 @@ export class BrokerClient {
     // Reuse the same key for all transport retries, including an ambiguous commit.
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await fetch(new URL(path, this.base), {
+        const res = await fetch(new URL(this.base.replace(/\/+$/, '') + path), {
           method: data === undefined ? 'GET' : 'POST',
           headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': key },
           ...(data === undefined ? {} : { body: JSON.stringify(data) }),
