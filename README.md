@@ -1,82 +1,96 @@
 # Pheme
 
-Named after Pheme, the Greek goddess and personification of rumor and report.
+**Ask a real person for a review from inside Claude Code. Only that person can give the verdict.**
 
-Pheme is a local broker and per-session Claude Code MCP stdio bridge for human review between two machines. Claude starts each bridge; the bridge makes outbound HTTP requests to the broker. No inbound bridge port is needed.
+You tell Claude "get feedback on this plan from Bob." Bob's Claude session is pinged, Bob picks **approve**, **request changes** or **comment** in a form on his own screen, and his answer comes back to you with his name on it.
 
-Requires Node **22.13+** (built-in `node:sqlite`, currently experimental on Node 22), npm, and a Claude Code release/account with custom Channels research-preview access and native MCP form elicitation. Channels availability and client behavior must be checked against the official docs linked below. No hosted account integration, publishing, firewall changes, or permission relay is included.
+Pheme is named after the Greek goddess of report and rumor.
 
-## Install on both machines
+> **Status: early preview.** Pheme works end to end and has automated tests, but it is built for small teams and depends on Claude Code custom Channels, which is a research preview. See [Limits](#limits).
 
-Clone/copy this project, then run in its directory:
+## Why
 
-```sh
+AI agents now write plans, migrations and pull requests faster than people can read them. The step that still needs a human is the decision: is this good enough to ship? Today that handoff happens through screenshots and copy-paste, and it's often unclear who actually signed off.
+
+Pheme keeps that decision with a named person:
+
+- **No agent can approve.** There is no tool the model can call to record a verdict. A verdict only exists when a person accepts a native form.
+- **Fails closed.** If the client can't show a form, Pheme refuses rather than falling back to "type approve in chat." Closing the form records nothing.
+- **Review text is untrusted.** Text in a review is shown to Claude as data, never as instructions, so a review can't talk the agent into anything.
+- **Connections only.** You can only send reviews to people you've connected with by email.
+- **Feedback is context, not commands.** When you hand a reviewer's answer to your agent, it gets attributed feedback to work with. Nothing runs automatically.
+
+## How it works
+
+```mermaid
+sequenceDiagram
+    participant A as Alice + Claude
+    participant P as Pheme server
+    participant B as Bob + Claude
+    A->>P: request_review(bob, plan)
+    P-->>B: review waiting
+    B->>B: Bob picks a verdict in a form
+    B->>P: verdict + feedback
+    P-->>A: Bob replied
+    A->>A: Alice closes it, or hands it to the agent
+```
+
+Each person runs a small local bridge that Claude Code starts as an MCP channel. The bridge never listens on a port; it only makes outbound HTTPS calls to the server. The server is a Supabase Edge Function over Postgres, or a small Node broker for a trusted LAN.
+
+## Quick start
+
+You need Node.js 22.13+, Git, and Claude Code with access to custom Channels.
+
+```bash
+git clone https://github.com/CrypticGuy/Pheme.ai.git
+cd Pheme.ai
 npm install
-npm run build
-npm test
+npm link
+pheme join <server URL>
+pheme connect <teammate's email>
+claude-pheme
+```
+
+Then ask Claude: *"Get feedback on this plan from Bob: …"*
+
+The full five-minute walkthrough, everyday commands and troubleshooting are in **[onboarding.md](onboarding.md)**.
+
+## Documentation
+
+| Doc | For |
+|---|---|
+| [onboarding.md](onboarding.md) | Joining a Pheme server and using it day to day |
+| [docs/operator-runbook.md](docs/operator-runbook.md) | Hosting your own server on Supabase or a LAN (written so a Claude Code agent can run it) |
+| [docs/architecture.md](docs/architecture.md) | Design, trust model, delivery guarantees, HTTP API and tests |
+
+## Limits
+
+- **Not a security or permission system.** Whoever holds a token can act as that person. Keep `~/.pheme/config.json` private, and run `pheme rotate` if it leaks.
+- **Depends on a research preview.** Custom Channels in Claude Code may change or not be enabled on your account.
+- **Small-team scale.** Pagination, retention and rate limiting are still to do.
+- **Review text is stored on the server** you join. Don't send anything you wouldn't put in a shared tool.
+
+## Development
+
+```bash
+npm install        # also builds
+npm test           # loopback broker + real stdio bridges, no network or accounts needed
 npm run typecheck
 ```
 
-SQLite uses WAL and FULL synchronization; all changes, including events and idempotency records, commit in one transaction. State is stored as one JSON row for a small-team MVP. This is intentionally simple, with no native npm build dependency. Large inboxes require normalized tables, pagination, retention, and rate limiting before broader use. Keep the database on a local disk, outside a synchronized folder; set `PHEME_DB` to an absolute local path on the host. Do not delete WAL files while running. Back up using SQLite backup tooling or stop the broker and copy its files together.
+Supabase smoke and end-to-end tests are described in [docs/operator-runbook.md](docs/operator-runbook.md#tests).
 
-## Machine A: broker host
+| Path | What it is |
+|---|---|
+| `bridge.ts` | MCP stdio bridge and channel that Claude Code starts |
+| `cli.ts`, `claude-pheme.ts` | `pheme` account CLI and the `claude-pheme` launcher |
+| `auth-client.ts`, `client.ts`, `config.ts` | Supabase Auth, broker HTTP client, local config |
+| `supabase/` | Hosted server: Edge Function and Postgres migrations |
+| `broker.ts`, `store.ts`, `provision.ts` | LAN broker over SQLite |
+| `*.test.ts`, `smoke-*.ts`, `e2e-*.ts`, `testkit.ts` | Tests |
 
-Choose a reachable LAN address for this machine, for example `192.168.1.10`. Provision identities locally; there is no network enrollment/admin endpoint. Tokens are generated once and only their hashes are stored. Deliver Bob's token privately to Bob. Shell/terminal history and scrollback may retain the printed token.
+Issues and pull requests are welcome. To report a security problem, see [SECURITY.md](SECURITY.md).
 
-PowerShell:
+## License
 
-```powershell
-$env:PHEME_DB = 'C:/PhemeData/pheme.sqlite'
-npm run provision -- alice 'Alice'
-npm run provision -- bob 'Bob'
-./start-broker.ps1 -BindAddress 192.168.1.10
-```
-
-Bash:
-
-```bash
-export PHEME_DB="$HOME/.local/share/pheme/pheme.sqlite"
-npm run provision -- alice Alice
-npm run provision -- bob Bob
-bash start-broker.sh 192.168.1.10
-```
-
-Leave the broker running in its terminal, or manage the same command with your existing service manager. Default bind is loopback; explicitly choosing the LAN address exposes it to that network. The project does not install a background service or change firewall rules. Check `http://192.168.1.10:8787/health` from both machines.
-
-**HTTP sends tokens and review text in clear text.** Use only a trusted LAN for this MVP. For untrusted networks place the broker behind an HTTPS reverse proxy or authenticated encrypted tunnel, bind its upstream to loopback, and set clients to the HTTPS URL. The bridge supports HTTPS with normal certificate validation; never disable it. Do not expose this HTTP port to the public internet.
-
-## Both machines: Claude setup
-
-Copy `.mcp.example.json` to `.mcp.json` in the working project where you launch Claude. Set the command to your absolute Node executable (`Get-Command node` / `command -v node`) and args to your absolute `dist/bridge.js`. On Unix use e.g. `/usr/local/bin/node` and `/home/alice/pheme/dist/bridge.js`. Set Alice's token on A and Bob's on B; use the same host URL. Keep `.mcp.json` private and uncommitted. Whoever possesses a token can act as that person; this is a credential boundary, not hardware identity or cryptographic proof of human presence.
-
-Launch Claude from that working project, approving the local MCP server if prompted:
-
-```powershell
-$env:MCP_PROTOCOL_NEGOTIATION = 'legacy'
-claude --dangerously-load-development-channels server:pheme
-```
-
-```bash
-MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme
-```
-
-The supplied launch scripts set the same variable on the **Claude process**. The development flag explicitly loads this custom channel; ordinary MCP tools alone do not enable channel events. Custom Channels are local stdio only, so configure the local bridge rather than the remote broker as MCP. See [Claude Code Channels](https://code.claude.com/docs/en/channels) and [custom channel reference](https://code.claude.com/docs/en/channels-reference).
-
-## Two-person walkthrough
-
-1. In Alice's Claude terminal ask: “Use Pheme request_review to ask bob to review this proposal: …”. The tool returns the immutable review ID.
-2. Bob's active terminal receives an event containing only fixed instructions and identifiers. Claude calls `present_review` with the ID. Pheme fetches the broker snapshot and opens a native form with `approve`, `request_changes`, or `comment`, plus optional feedback. **Bob chooses and accepts the form.** Review text is displayed as untrusted data.
-3. Alice receives a response event. `finalize_review` displays the attributed snapshot and opens an owner form: `close` or `hand_to_agent`, with an optional note. Alice accepts. The tool returns the attributed final packet; handing to the agent does not execute anything automatically.
-4. Canceling/dismissing either form records nothing. Ask Claude to use `list_pending`, then reopen the form. If the client lacks native form support, Pheme fails closed with no chat fallback.
-
-There is deliberately no model-callable `approve`, `respond`, or raw finalization tool. Only accepted native form results reach those API calls from the bridge. The broker authenticates bearer identity and roles, not the origin of human intent: a person/process with the token can call the HTTP API directly. Do not grant untrusted code access to tokens or treat this as a security approval/permission system.
-
-When a Claude session closes its child bridge stops, so it receives no live events. The broker retains unacknowledged events across restarts and replays on reconnect. ACK means notification written to the live MCP transport, not human acceptance; a crash after the write can cause duplicate delivery, and a crash after ACK can leave no replayed notification. `list_pending` always recovers unresolved reviews. Multiple sessions sharing one token compete for the same inbox, so use one active session per identity. Responses and finalizations require an expected version; stale forms return a conflict and must be reopened. Transport retries reuse idempotency keys; a manually repeated request tool call creates a new review.
-
-## Local synthetic smoke and API
-
-`npm test` launches a loopback broker, provisions synthetic users, creates a review, restarts the broker to verify queued replay, records a reviewer response, finalizes it, and verifies auth/role/version/idempotency failures. It exercises accepted, canceled, and malformed form inputs with a fake elicitation client, then spawns two real stdio bridge processes through MCP clients and verifies channel notifications, declared tools, form requests, and finalization. No real Claude session, accounts, or LAN changes are needed.
-
-Authenticated endpoints use `Authorization: Bearer TOKEN`: `POST /reviews`, `GET /reviews` (unresolved only), `GET /reviews/:id`, `GET /inbox/events?wait_ms=25000`, `POST /events/:id/ack`, `POST /reviews/:id/response`, `POST /reviews/:id/finalize`. Mutating review routes require `Idempotency-Key` (8–128 alphanumeric/underscore/hyphen characters); response/finalization JSON includes `version`. Review text/title/participants cannot be edited after creation. `/health` is public. IDs double as inbox identifiers; the token selects its inbox, so callers cannot choose someone else's inbox in a query.
-
-Remaining interactive smoke: run the two-machine walkthrough with supported Claude sessions and verify native forms, custom-channel delivery, cancel/reopen, offline queue, and terminal shutdown on the actual client version. Automated tests cannot establish that the Claude UI displayed a form to a person.
+[MIT](LICENSE). Pheme is an independent project and is not affiliated with Anthropic.

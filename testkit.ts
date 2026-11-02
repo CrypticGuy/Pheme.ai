@@ -18,7 +18,6 @@ export async function rpc(fn: string, args: object) {
   const text = await res.text();
   assert.ok(res.ok, `${fn}: ${text}`); return text ? JSON.parse(text) : null;
 }
-export const allow = (email: string, connectWith: string[] = []) => rpc('pheme_allow_email', { p_email: email, p_connect_with: connectWith });
 export const connect = (x: string, y: string) => rpc('pheme_connect', { p_x: x, p_y: y });
 
 export const emails: string[] = [], handles: string[] = [], authUsers: string[] = [];
@@ -34,9 +33,8 @@ export async function cleanup() {
   if (!explicitKey && !api.includes('127.0.0.1')) return;
   const rest = async (table: string, filter: string) => { const r = await fetch(`${api}/rest/v1/${table}?${filter}`, { method: 'DELETE', headers: admin }); if (!r.ok) console.error(`cleanup ${table}: ${await r.text()}`); };
   const list = `in.(${handles.join(',')})`;
-  // Allowlist rows reference users, so they go first.
-  if (emails.length) await rest('pheme_allowed_emails', `email=in.(${emails.map(e => e.toLowerCase()).join(',')})`);
   if (handles.length) {
+    await rest('pheme_pending_connections', `requester=${list}`);
     await rest('pheme_events', `inbox=${list}`); await rest('pheme_reviews', `owner=${list}`);
     await rest('pheme_keys', `scoped_key=like.*${sfx}*`); await rest('pheme_users', `id=${list}`);
   }

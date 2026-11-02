@@ -1,6 +1,24 @@
 {
   "name": "pheme-review-channel",
   "version": "0.1.0",
+  "description": "Ask a real person for a review from inside Claude Code. Only that person can give the verdict.",
+  "license": "MIT",
+  "author": "Vasu Goel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CrypticGuy/Pheme.ai.git"
+  },
+  "homepage": "https://github.com/CrypticGuy/Pheme.ai#readme",
+  "bugs": {
+    "url": "https://github.com/CrypticGuy/Pheme.ai/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "code-review",
+    "human-in-the-loop",
+    "ai-agents"
+  ],
   "private": true,
   "type": "module",
   "engines": {

@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { account, bootstrap, liveSession, signIn, signOut, signUp } from './auth-client.js';
+import { BrokerClient } from './client.js';
 import { configPath, loadConfig, saveConfig, type Saved, type Session } from './config.js';
 
 const usage = `Pheme account CLI
@@ -12,9 +13,11 @@ const usage = `Pheme account CLI
   pheme join [URL] [--email E] [--handle H] [--name N] [--dir DIR]
       Everything in one step: sign up (or log in), wait for email confirmation, claim your
       handle, and write .mcp.json for Claude Code in DIR (default: current folder).
-      Your email must have been added by the admin first.
 
-  pheme whoami                  show your login, handle and connections
+  pheme connect EMAIL           connect with someone so you can ask them for feedback; if they have not
+                                joined yet, you are connected when they do
+  pheme connections             list who you are connected with and who is still pending
+  pheme whoami                  show your login and handle
   pheme rotate                  replace your bridge token (the old one stops working)
   pheme logout                  forget the login on this machine
 
@@ -28,6 +31,7 @@ function flags(args: string[]) {
   for (let i = 0; i < args.length; i++) {
     // npm swallows "--url" unless it comes after "--", so also accept the bare URL.
     if (/^https?:\/\//.test(args[i])) { out.url = args[i]; continue; }
+    if (!args[i].startsWith('--')) continue; // positional (e.g. the email for "connect")
     const m = /^--([a-z-]+)(?:=(.*))?$/.exec(args[i]);
     if (!m) throw new Error(`Unexpected argument: ${args[i]}`);
     out[m[1]] = m[2] ?? args[++i] ?? '';
@@ -143,7 +147,24 @@ async function joinCommand(f: Record<string, string>) {
     saveConfig({ ...cfg, handle: r.id, name: r.name, token: r.token }); console.log(`Welcome back, ${r.id}. Issued a new token for this machine.`);
   } else console.log(`Already registered as "${me.id}".`);
   setup(f);
-  console.log('\nDone. Run: claude-pheme   (install it once with "npm link" in the Pheme repo)\nOr launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme\nThen ask it, for example: "get feedback on this plan from <name>".');
+  console.log('\nDone. Run: claude-pheme   (install it once with "npm link" in the Pheme repo)\nOr launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme\nConnect with people: pheme connect their@email\nThen ask it, for example: "get feedback on this plan from <name>".');
+}
+function broker() {
+  const cfg = loadConfig();
+  if (!cfg.url || !cfg.token) throw new Error('Not registered on this machine. Run: pheme join');
+  return new BrokerClient(cfg.url, cfg.token);
+}
+async function connect(email: string | undefined) {
+  const mail = (email ?? '').trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw new Error('Usage: pheme connect person@example.com');
+  await broker().call('/connect', { email: mail });
+  // The server does not reveal whether the address has an account, so neither do we.
+  console.log(`Requested. You are connected with ${mail} once they have an account here (check: pheme connections).`);
+}
+async function connections() {
+  const { people, pending } = await broker().call<{ people: { id: string; name: string }[]; pending: string[] }>('/connections');
+  console.log(`Connected (${people.length}):\n${people.map(p => `  ${p.id} (${p.name})`).join('\n') || '  nobody yet'}`);
+  if (pending.length) console.log(`Waiting for them to join:\n${pending.map(e => `  ${e}`).join('\n')}`);
 }
 async function whoami() {
   const { cfg, token } = await liveSession();
@@ -171,6 +192,8 @@ try {
   else if (command === 'login') await login(f);
   else if (command === 'register') { await register(f); console.log('Next: pheme setup'); }
   else if (command === 'setup') { setup(f); console.log('Launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme'); }
+  else if (command === 'connect') await connect(process.argv[3]);
+  else if (command === 'connections') await connections();
   else if (command === 'whoami') await whoami();
   else if (command === 'rotate') await rotate();
   else if (command === 'logout') await logout();

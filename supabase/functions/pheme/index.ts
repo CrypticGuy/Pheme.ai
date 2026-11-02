@@ -11,6 +11,7 @@ const version = z.number().int().positive();
 const create = z.object({ recipient: z.string().min(1).max(80), title: z.string().min(1).max(200), text: z.string().min(1).max(50_000) }).strict();
 const respond = z.object({ version, verdict: z.enum(['approve', 'request_changes', 'comment']), feedback: z.string().max(10_000).optional() }).strict();
 const registerBody = z.object({ handle: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(80) }).strict();
+const connectBody = z.object({ email: z.string().trim().email().max(254) }).strict();
 const finalize = z.object({ version, action: z.enum(['close', 'hand_to_agent']), note: z.string().max(10_000).optional() }).strict();
 
 async function rpc(fn: string, args: Record<string, unknown>) {
@@ -68,7 +69,8 @@ Deno.serve(async req => {
         events = (await rpc('pheme_events', { p_user: user.id })) as unknown[];
       }
       result = { events };
-    } else if (req.method === 'GET' && path === '/people') result = { people: await rpc('pheme_people', { p_user: user.id }) };
+    } else if (req.method === 'GET' && path === '/connections') result = await rpc('pheme_connections', { p_user: user.id });
+    else if (req.method === 'GET' && path === '/people') result = { people: await rpc('pheme_people', { p_user: user.id }) };
     else if (req.method === 'GET' && path === '/reviews') result = { reviews: await rpc('pheme_pending', { p_user: user.id }) };
     else if (req.method === 'GET' && /^\/reviews\/[^/]+$/.test(path)) result = await rpc('pheme_get_review', { p_id: id, p_user: user.id });
     else if (req.method === 'POST' && /^\/events\/[^/]+\/ack$/.test(path)) result = await rpc('pheme_ack', { p_id: id, p_user: user.id });
@@ -76,7 +78,8 @@ Deno.serve(async req => {
       const key = req.headers.get('idempotency-key');
       if (!key || !/^[a-zA-Z0-9_-]{8,128}$/.test(key)) throw new HttpError(400, 'Idempotency-Key of 8-128 safe characters required');
       const base = { p_user: user.id, p_key: key };
-      if (path === '/reviews') {
+      if (path === '/connect') result = await rpc('pheme_connect_email', { p_user: user.id, p_email: connectBody.parse(await body(req)).email });
+      else if (path === '/reviews') {
         const d = create.parse(await body(req));
         result = await rpc('pheme_create', { ...base, p_fp: await sha256(JSON.stringify({ op: 'create', d })), p_recipient: d.recipient, p_title: d.title, p_text: d.text });
       } else if (/^\/reviews\/[^/]+\/response$/.test(path)) {

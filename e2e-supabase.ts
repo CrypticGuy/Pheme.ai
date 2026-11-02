@@ -12,15 +12,15 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { BrokerClient, ApiError } from './client.js';
-import { adminUser, allow, api, cleanup, handles, sfx, url } from './testkit.js';
+import { adminUser, api, cleanup, handles, sfx, url } from './testkit.js';
 
 const cliPath = fileURLToPath(new URL('./cli.js', import.meta.url));
 const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== 'PHEME_SUPABASE_SERVICE_ROLE_KEY'));
 const password = 'e2e-test-password', dirs: string[] = [];
 const who = (n: string, name: string) => ({ n, name, email: `${n}-${sfx}@example.com`, handle: `${n}${sfx}`, home: mkdtempSync(join(tmpdir(), `pheme-home-${n}-`)), project: mkdtempSync(join(tmpdir(), `pheme-proj-${n}-`)) });
 type Person = ReturnType<typeof who>;
-const [alice, bob, carol, mallory] = [who('alice', 'Alice Anderson'), who('bob', 'Bob Brown'), who('carol', 'Carol Clark'), who('mallory', 'Mallory')];
-for (const p of [alice, bob, carol, mallory]) { dirs.push(p.home, p.project); handles.push(p.handle); }
+const [alice, bob, carol, dave] = [who('alice', 'Alice Anderson'), who('bob', 'Bob Brown'), who('carol', 'Carol Clark'), who('dave', 'Dave Davis')];
+for (const p of [alice, bob, carol, dave]) { dirs.push(p.home, p.project); handles.push(p.handle); }
 
 function cli(home: string, args: string[], pw = password) {
   const r = spawnSync(process.execPath, [cliPath, ...args], { env: { ...env, PHEME_HOME: home, PHEME_SUPABASE_URL: api, PHEME_PASSWORD: pw }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -47,14 +47,12 @@ const caps = { capabilities: { elicitation: { form: {} } } };
 
 const a = new Client({ name: 'e2e-alice', version: '1' }, caps), b = new Client({ name: 'e2e-bob', version: '1' }, caps), c = new Client({ name: 'e2e-carol', version: '1' }, caps);
 try {
-  // Admin allows emails; bob is pre-connected to alice, carol and mallory are not.
-  for (const p of [alice, bob, carol, mallory]) await adminUser(p.email, password);
-  await allow(alice.email); await allow(bob.email, [alice.handle]); await allow(carol.email);
+  for (const p of [alice, bob, carol, dave]) await adminUser(p.email, password);
 
-  // One command each. A not-invited email gets no handle and no .mcp.json.
+  // Anyone with a login joins in one command, which also writes .mcp.json.
   assert.match(ok(joinAs(alice)), /Done\./);
+  assert.ok(existsSync(join(alice.project, '.mcp.json')));
   ok(joinAs(bob)); ok(joinAs(carol));
-  const denied = joinAs(mallory); assert.notEqual(denied.code, 0); assert.match(denied.out, /not been invited/); assert.equal(existsSync(join(mallory.project, '.mcp.json')), false);
   // join is safe to repeat, and on a "new machine" (no stored token) it issues a fresh one.
   assert.match(ok(joinAs(alice)), /Already registered/);
   const oldToken = tokenOf(alice.home);
@@ -63,6 +61,18 @@ try {
   assert.notEqual(tokenOf(alice.home), oldToken);
   await assert.rejects(new BrokerClient(url, oldToken).call('/reviews'), status(401));
   assert.match(ok(cli(bob.home, ['whoami'])), new RegExp(`Handle: ${bob.handle}`));
+
+  // Nobody is connected yet. Members connect themselves by email; an unregistered address stays pending until they join.
+  assert.match(ok(cli(alice.home, ['connections'])), /nobody yet/);
+  ok(cli(alice.home, ['connect', bob.email]));
+  assert.match(ok(cli(alice.home, ['connections'])), new RegExp(bob.handle));
+  assert.notEqual(cli(alice.home, ['connect', 'not-an-email']).code, 0);
+  assert.notEqual(cli(alice.home, ['connect', alice.email]).code, 0);
+  ok(cli(carol.home, ['connect', dave.email]));
+  assert.ok(ok(cli(carol.home, ['connections'])).includes(`Waiting for them to join:\n  ${dave.email}`));
+  ok(joinAs(dave));
+  const afterJoin = ok(cli(carol.home, ['connections']));
+  assert.ok(afterJoin.includes(dave.handle) && !afterJoin.includes('Waiting'), afterJoin);
 
   const bobNotice = notice(b), aliceNotice = notice(a);
   let bobForms = 0, aliceForms = 0;
@@ -75,7 +85,7 @@ try {
   const people = data(await a.callTool({ name: 'list_people', arguments: {} })).people as { id: string; name: string }[];
   assert.deepEqual(people.map(p => p.id), [bob.handle]);
   const target = people.find(p => /bob/i.test(p.name)); assert.ok(target);
-  assert.deepEqual(data(await c.callTool({ name: 'list_people', arguments: {} })).people, []);
+  assert.deepEqual(data(await c.callTool({ name: 'list_people', arguments: {} })).people.map((p: { id: string }) => p.id), [dave.handle]);
   const blocked = await c.callTool({ name: 'request_review', arguments: { recipient: alice.handle, title: 'x', text: 'y' } });
   assert.equal(blocked.isError, true);
 
