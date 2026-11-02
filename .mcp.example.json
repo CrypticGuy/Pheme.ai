@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pheme": {
+      "type": "stdio",
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["C:/absolute/path/to/Pheme/dist/bridge.js"],
+      "env": { "PHEME_URL": "http://192.168.1.10:8787", "PHEME_TOKEN": "REPLACE_WITH_THIS_PERSON_TOKEN" }
+    }
+  }
+}
