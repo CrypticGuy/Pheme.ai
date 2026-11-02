@@ -11,3 +11,6 @@ data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Private planning notes
+docs/social-media-calendar.md
