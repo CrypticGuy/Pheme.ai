@@ -36,7 +36,8 @@ export async function humanDecision(client: BrokerClient, elicit: Elicit, mode: 
 }
 export async function startBridge() {
   // PHEME_TOKEN wins; otherwise use the token that `pheme register` stored in the private config file.
-  const saved = process.env.PHEME_TOKEN ? {} : loadConfig();
+  const usesConfig = !process.env.PHEME_TOKEN;
+  const saved = usesConfig ? loadConfig() : {};
   const url = process.env.PHEME_URL ?? saved.url, token = process.env.PHEME_TOKEN ?? saved.token;
   if (!url || !token) throw new Error('PHEME_URL and PHEME_TOKEN are required (or run: pheme register)');
   const stop = new AbortController(), client = new BrokerClient(url, token, stop.signal);
@@ -78,7 +79,8 @@ export async function startBridge() {
       try {
         const { events } = await client.call<{ events: InboxEvent[] }>('/inbox/events?wait_ms=25000');
         for (const event of events) {
-          if (!delivered.has(event.id)) {
+          // In desktop mode the daemon asks the person, so the channel stays quiet; events are still acked below.
+          if (!delivered.has(event.id) && !(usesConfig && loadConfig().mode === 'desktop')) {
             // Notification contains fixed text and opaque identifiers only, never peer text.
             await server.notification({ method: 'notifications/claude/channel', params: { content: event.kind === 'review_requested' ? 'A human review is waiting. Call present_review with this review_id.' : 'A human response is waiting. Call finalize_review with this review_id.', meta: { review_id: event.reviewId, event_id: event.id, kind: event.kind } } });
             delivered.add(event.id);

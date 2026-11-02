@@ -51,6 +51,8 @@ pheme connect <teammate's email>
 claude-pheme
 ```
 
+On Windows and macOS, `pheme join` also starts a tiny background process that pops up a native review window on your desktop when someone asks for your feedback, so you can answer without Claude open. Prefer the Claude channel ping? Use `--no-daemon`, or switch any time with `pheme mode channel`.
+
 Then ask Claude: *"Get feedback on this plan from Bob: …"*
 
 To see what's waiting on you, run `pheme pending`. Run `pheme install-skill` once to get `/pheme-pending` in every Claude Code project.

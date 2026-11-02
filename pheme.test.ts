@@ -9,6 +9,7 @@ import { Store } from './store.js';
 import { createBroker } from './broker.js';
 import { BrokerClient, ApiError } from './client.js';
 import { humanDecision } from './bridge.js';
+import { DesktopState, tick } from './desktop.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -103,4 +104,38 @@ test('real stdio bridges negotiate tools, deliver custom channels and require na
     const finalized = await a.callTool({ name: 'finalize_review', arguments: { review_id: id } }); assert.ok(!finalized.isError); assert.equal(aliceForms, 1);
     assert.equal(store.getReview(id, 'alice').state, 'finalized');
   } finally { await Promise.all([a.close(), b.close()]); await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }); store.close(); }
+});
+
+test('desktop daemon: asks once, posts only validated answers, announces replies, never re-announces', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pheme-home-')); process.env.PHEME_HOME = home;
+  const store = new Store(':memory:');
+  const alice = store.provision('alice', 'Alice'), bob = store.provision('bob', 'Bob');
+  const server = createBroker(store); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert.ok(address && typeof address === 'object');
+  const base = `http://127.0.0.1:${address.port}`, a = new BrokerClient(base, alice.token), b = new BrokerClient(base, bob.token);
+  const asked: string[] = [], notices: string[] = [];
+  let answer: unknown = null;
+  const prompter = { ask: async (r: { id: string }) => { asked.push(r.id); return answer; }, notify: async (t: string, body: string) => { notices.push(`${t} | ${body}`); } };
+  const quiet = () => undefined;
+  try {
+    const state = new DesktopState(1000);
+    const r = await a.call<any>('/reviews', { recipient: 'bob', title: 'Plan', text: 'ship it' });
+    // "Later" and a fabricated verdict both leave the review pending, and neither re-prompts within the snooze window.
+    await tick(b, 'bob', prompter, state, 0, quiet); assert.equal(asked.length, 1);
+    await tick(b, 'bob', prompter, state, 500, quiet); assert.equal(asked.length, 1);
+    answer = { verdict: 'fabricated' };
+    await tick(b, 'bob', prompter, state, 2000, quiet); assert.equal(asked.length, 2);
+    assert.equal(store.getReview(r.id, 'bob').state, 'pending');
+    answer = { verdict: 'request_changes', feedback: '  tighten scope  ' };
+    await tick(b, 'bob', prompter, state, 4000, quiet);
+    const done = store.getReview(r.id, 'bob');
+    assert.equal(done.state, 'responded'); assert.deepEqual([done.response?.verdict, done.response?.feedback], ['request_changes', 'tighten scope']);
+    assert.match(notices.at(-1)!, /Sent your request for changes to alice/);
+    // The owner is told once, and the first run on a machine with history stays silent about old replies.
+    await tick(a, 'alice', prompter, state, 5000, quiet); await tick(a, 'alice', prompter, state, 6000, quiet);
+    assert.equal(notices.filter(n => n.startsWith('bob replied')).length, 1);
+    const old = new DesktopState(); old.seen.clear(); old.fresh = true;
+    await tick(a, 'alice', prompter, old, 7000, quiet);
+    assert.equal(notices.filter(n => n.startsWith('bob replied')).length, 1);
+  } finally { delete process.env.PHEME_HOME; await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }); store.close(); rmSync(home, { recursive: true, force: true }); }
 });

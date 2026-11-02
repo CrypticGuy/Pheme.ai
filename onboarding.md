@@ -62,7 +62,15 @@ claude-pheme
 
 Use it instead of `claude`, from any folder. The first run registers Pheme with your Claude Code; after that it starts Claude with the Pheme channel loaded. You can pass normal Claude options after it, for example `claude-pheme --resume`.
 
-## 5. Try it
+## 5. Desktop popups (Windows and macOS)
+
+`pheme join` also turns on **desktop mode**: a small background process, started at login, that pops up a native window whenever someone asks you for a review. You read the text, pick approve, request changes or comment, add optional feedback and press Send. It works with Claude closed. There is nothing extra to install (it uses PowerShell on Windows and AppleScript on macOS).
+
+- **Later** dismisses the window without recording anything; it asks again in about an hour.
+- When someone answers a review you sent, you get a notification. Closing it (or handing it to Claude) still happens in Claude.
+- Prefer the Claude channel ping instead? Run `pheme join <url> --no-daemon` once, or switch any time with `pheme mode channel` (and back with `pheme mode desktop`). In desktop mode Claude is not pinged, so you don't get both.
+
+## 6. Try it
 
 In Claude, ask:
 
@@ -101,6 +109,8 @@ Then type `/pheme-pending` in any Claude Code session, or ask "what reviews are 
 | `pheme connections` | Who you're connected with, and who is pending |
 | `pheme pending` | Reviews waiting on you, and the ones you're waiting on (`--json` for scripts) |
 | `pheme install-skill` | Add the `/pheme-pending` skill to Claude Code for all your projects |
+| `pheme mode [channel|desktop]` | Show or switch how you get review requests |
+| `pheme daemon status` | Is the desktop process running? (also `start`, `stop`; log is in `~/.pheme/daemon.log`) |
 | `pheme whoami` | Your login and handle |
 | `pheme rotate` | New token (the old one stops working). Restart Claude afterwards |
 | `pheme logout` | Forget the login on this machine |
@@ -117,7 +127,8 @@ Then type `/pheme-pending` in any Claude Code session, or ask "what reviews are 
 | `claude-pheme` not found | Run `npm link` again in the Pheme folder, or use `npm run pheme -- ...` for CLI commands and start Claude with `MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme` |
 | Claude doesn't show Pheme tools | Start it with `claude-pheme`, not plain `claude`. Ask Claude to list its tools and look for `list_people` and `request_review` |
 | "Recipient not found among your connections" | You aren't connected yet, or they used a different email. Check `pheme connections` |
-| No ping when someone sends you a review | Make sure you started Claude with `claude-pheme`; ask Claude to "list my pending reviews" to catch up |
+| No popup in desktop mode | `pheme daemon status`; if it isn't running, `pheme daemon start`. Check `daemon.log`. Popups only appear while you are logged in to the desktop |
+| No ping when someone sends you a review | In channel mode make sure you started Claude with `claude-pheme`; ask Claude to "list my pending reviews" to catch up |
 | Other problems | Send the exact error text to whoever invited you |
 
 ## Good to know

@@ -9,12 +9,20 @@ import { account, bootstrap, liveSession, signIn, signOut, signUp } from './auth
 import { ApiError, BrokerClient } from './client.js';
 import { configPath, loadConfig, saveConfig, type Saved, type Session } from './config.js';
 import type { Review } from './store.js';
+import { autostartInstalled, autostartSupported, daemonRunning, installAutostart, removeAutostart, startDaemon, stopDaemon } from './autostart.js';
+import { runDaemon } from './desktop.js';
 
 const usage = `Pheme account CLI
 
-  pheme join [URL] [--email E] [--handle H] [--name N] [--dir DIR]
+  pheme join [URL] [--email E] [--handle H] [--name N] [--dir DIR] [--no-daemon]
       Everything in one step: sign up (or log in), wait for email confirmation, claim your
-      handle, and write .mcp.json for Claude Code in DIR (default: current folder).
+      handle, and write .mcp.json for Claude Code in DIR (default: current folder). On Windows and macOS it
+      also turns on desktop mode (below) unless you pass --no-daemon.
+
+  pheme mode [channel|desktop]  how you get review requests: "channel" pings your Claude session; "desktop"
+                                runs a small background process that pops up a native form instead
+  pheme daemon status|start|stop|run
+                                control the desktop background process (run = in this terminal)
 
   pheme connect EMAIL           connect with someone so you can ask them for feedback; if they have not
                                 joined yet, you are connected when they do
@@ -135,7 +143,7 @@ async function waitForConfirmation(e: { supabaseUrl: string; anonKey: string }, 
   throw new Error('Timed out waiting for email confirmation. Click the link, then run: pheme join again');
 }
 
-async function joinCommand(f: Record<string, string>) {
+async function joinCommand(f: Record<string, string>, noDaemon = false) {
   let cfg = await target(f);
   const email = await need(f.email, 'Email: '), pw = await password(false);
   const session = await establishSession(cfg, email, pw);
@@ -151,7 +159,48 @@ async function joinCommand(f: Record<string, string>) {
     saveConfig({ ...cfg, handle: r.id, name: r.name, token: r.token }); console.log(`Welcome back, ${r.id}. Issued a new token for this machine.`);
   } else console.log(`Already registered as "${me.id}".`);
   setup(f);
+  if (noDaemon) { if (!loadConfig().mode) saveConfig({ ...loadConfig(), mode: 'channel' }); }
+  else if (loadConfig().mode === 'channel') console.log('Keeping channel mode (switch with: pheme mode desktop).');
+  else {
+    try {
+      enableDesktop();
+      console.log('\nDone. Desktop mode is on: review requests pop up a form on this machine, even with Claude closed.\nConnect with people: pheme connect their@email\nTo ask someone for feedback, use Claude started with claude-pheme, e.g. "get feedback on this plan from <name>".\nSwitch back to Claude pings with: pheme mode channel');
+      return;
+    } catch (err) { console.log(`Desktop mode not enabled: ${err instanceof Error ? err.message : err}`); }
+  }
   console.log('\nDone. Run: claude-pheme   (install it once with "npm link" in the Pheme repo)\nOr launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme\nConnect with people: pheme connect their@email\nThen ask it, for example: "get feedback on this plan from <name>".');
+}
+function enableDesktop() {
+  const cfg = loadConfig();
+  if (!autostartSupported()) throw new Error('Desktop mode supports Windows and macOS. Staying on channel mode.');
+  if (!cfg.url || !cfg.token || !cfg.handle) throw new Error('Register first: pheme join');
+  saveConfig({ ...cfg, mode: 'desktop' });
+  installAutostart();
+  // On macOS launchd starts it as soon as it is loaded.
+  if (process.platform !== 'darwin') startDaemon();
+}
+function modeCommand(arg: string | undefined) {
+  const cfg = loadConfig();
+  if (!arg) { console.log(`Mode: ${cfg.mode ?? 'channel'}
+  channel: review requests ping your Claude session (start it with claude-pheme)
+  desktop: a background process shows a native form; switch with: pheme mode channel|desktop`); return; }
+  if (arg === 'desktop') { enableDesktop(); console.log('Desktop mode on. The Pheme daemon starts at login and is running now.\nReview requests will pop up a form on this machine; Claude is no longer pinged.'); }
+  else if (arg === 'channel') {
+    saveConfig({ ...cfg, mode: 'channel' }); stopDaemon(); removeAutostart();
+    console.log('Channel mode on. The desktop daemon is stopped and no longer starts at login.');
+  } else throw new Error('Usage: pheme mode [channel|desktop]');
+}
+async function daemonCommand(arg: string | undefined) {
+  if (arg === 'run') await runDaemon();
+  else if (arg === 'start') { if (loadConfig().mode !== 'desktop') throw new Error('Desktop mode is off. Turn it on with: pheme mode desktop'); console.log(`Daemon ${startDaemon()}.`); }
+  else if (arg === 'stop') console.log(stopDaemon() ? 'Daemon stopped (it starts again at next login unless you run: pheme mode channel).' : 'Daemon was not running.');
+  else if (arg === 'status' || arg === undefined) {
+    const pid = daemonRunning();
+    console.log(`Mode:      ${loadConfig().mode ?? 'channel'}
+Daemon:    ${pid ? `running (pid ${pid})` : 'not running'}
+At login:  ${autostartInstalled() ? 'yes' : 'no'}
+Log:       ${join(dirname(configPath()), 'daemon.log')}`);
+  } else throw new Error('Usage: pheme daemon status|start|stop|run');
 }
 function broker() {
   const cfg = loadConfig();
@@ -236,14 +285,16 @@ async function logout() {
 const [command, ...rest] = process.argv.slice(2);
 try {
   // --json is a switch, not a --flag value pair.
-  const json = rest.includes('--json'), f = flags(rest.filter(a => a !== '--json'));
-  if (command === 'join') await joinCommand(f);
+  const json = rest.includes('--json'), noDaemon = rest.includes('--no-daemon'), f = flags(rest.filter(a => a !== '--json' && a !== '--no-daemon'));
+  if (command === 'join') await joinCommand(f, noDaemon);
   else if (command === 'signup') await signup(f);
   else if (command === 'login') await login(f);
   else if (command === 'register') { await register(f); console.log('Next: pheme setup'); }
   else if (command === 'setup') { setup(f); console.log('Launch Claude from that folder with:\n  MCP_PROTOCOL_NEGOTIATION=legacy claude --dangerously-load-development-channels server:pheme'); }
   else if (command === 'connect') await connect(process.argv[3]);
   else if (command === 'connections') await connections();
+  else if (command === 'mode') modeCommand(process.argv[3]);
+  else if (command === 'daemon') await daemonCommand(process.argv[3]);
   else if (command === 'pending') await pending(json);
   else if (command === 'install-skill') installSkill();
   else if (command === 'whoami') await whoami();

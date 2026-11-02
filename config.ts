@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export type Session = { accessToken: string; refreshToken: string; expiresAt: number; email: string };
-export type Saved = { url?: string; supabaseUrl?: string; anonKey?: string; session?: Session; handle?: string; name?: string; token?: string };
+export type Saved = { url?: string; supabaseUrl?: string; anonKey?: string; session?: Session; handle?: string; name?: string; token?: string; mode?: 'channel' | 'desktop' };
 
 // Holds the Auth session and the bridge token. Keep it private; override the location with PHEME_HOME.
 export const configPath = () => join(process.env.PHEME_HOME ?? join(homedir(), '.pheme'), 'config.json');
