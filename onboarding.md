@@ -230,3 +230,26 @@ npm run provision -- friend 'Friend'
 Each client sets `PHEME_URL` to `https://<ref>.supabase.co/functions/v1/pheme` and its own `PHEME_TOKEN` in `.mcp.json`. Verify with `curl https://<ref>.supabase.co/functions/v1/pheme/health`.
 
 Local and hosted databases are separate, so tokens do not carry over; provision again after moving.
+
+## Part 7. Self-service accounts (`pheme` CLI)
+
+Instead of the admin handing out tokens, each person signs up with email and password (Supabase Auth), claims a handle with a single-use invite code, and gets a bridge token stored in `~/.pheme/config.json` (override the folder with `PHEME_HOME`). The bridge reads that file when `PHEME_TOKEN` is unset, so `.mcp.json` holds no secret. Invites stop strangers who find the public URL from creating accounts.
+
+Admin, per person (needs the service-role key; never share it):
+
+```bash
+PHEME_SUPABASE_URL=https://<ref>.supabase.co PHEME_SUPABASE_SERVICE_ROLE_KEY=<key> npm run invite -- "for Bob"
+```
+
+The printed code is single-use; send it privately. Each person, after `npm install && npm run build`:
+
+```bash
+npm run pheme -- signup --url https://<ref>.supabase.co/functions/v1/pheme
+npm run pheme -- login                      # only needed if signup asked you to confirm your email first
+npm run pheme -- register --handle bob --invite <code>
+npm run pheme -- setup                      # writes .mcp.json in the current folder
+```
+
+Then launch Claude with the channel flag (Part 4). Other commands: `whoami`, `rotate` (new token, old one revoked), `logout`. Non-interactive use: set `PHEME_PASSWORD` and pass flags.
+
+Notes: hosted projects require email confirmation by default, and the built-in mailer is heavily rate limited; configure custom SMTP in the Supabase dashboard for more than a few sign-ups per hour. For the local stack, use `PHEME_SUPABASE_URL=http://127.0.0.1:55321` because the function reports a docker-internal Auth address. `npm run smoke:auth` exercises the whole flow locally. Handles provisioned earlier with `npm run provision` keep working but have no login attached.

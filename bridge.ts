@@ -4,6 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import { BrokerClient } from './client.js';
+import { loadConfig } from './config.js';
 import type { Review, InboxEvent } from './store.js';
 
 const idArgs = z.object({ review_id: z.string().uuid() }).strict();
@@ -24,8 +25,10 @@ export async function humanDecision(client: BrokerClient, elicit: Elicit, mode: 
   return client.call<Review>(`/reviews/${review.id}/${mode === 'response' ? 'response' : 'finalize'}`, { version: review.version, ...data });
 }
 export async function startBridge() {
-  const url = process.env.PHEME_URL, token = process.env.PHEME_TOKEN;
-  if (!url || !token) throw new Error('PHEME_URL and PHEME_TOKEN are required');
+  // PHEME_TOKEN wins; otherwise use the token that `pheme register` stored in the private config file.
+  const saved = process.env.PHEME_TOKEN ? {} : loadConfig();
+  const url = process.env.PHEME_URL ?? saved.url, token = process.env.PHEME_TOKEN ?? saved.token;
+  if (!url || !token) throw new Error('PHEME_URL and PHEME_TOKEN are required (or run: pheme register)');
   const stop = new AbortController(), client = new BrokerClient(url, token, stop.signal);
   const server = new Server({ name: 'pheme', version: '0.1.0' }, { capabilities: { tools: {}, experimental: { 'claude/channel': {} } }, instructions });
   const tool = (name: string, description: string, properties: object, required: string[]) => ({ name, description, inputSchema: { type: 'object' as const, properties, required, additionalProperties: false } });

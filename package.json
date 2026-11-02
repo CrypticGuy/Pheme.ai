@@ -14,9 +14,12 @@
     "broker": "node dist/broker.js",
     "bridge": "node dist/bridge.js",
     "provision": "node dist/provision.js",
-    "supabase:start": "npx supabase start -x gotrue,realtime,storage-api,imgproxy,mailpit,studio,logflare,vector,supavisor,postgres-meta",
+    "supabase:start": "npx supabase start -x realtime,storage-api,imgproxy,mailpit,studio,logflare,vector,supavisor,postgres-meta",
     "supabase:serve": "npx supabase functions serve --no-verify-jwt",
-    "smoke:supabase": "npm run build && node dist/smoke-supabase.js"
+    "smoke:supabase": "npm run build && node dist/smoke-supabase.js",
+    "pheme": "node dist/cli.js",
+    "invite": "node dist/invite.js",
+    "smoke:auth": "npm run build && node dist/smoke-auth.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -25,5 +28,8 @@
   "devDependencies": {
     "@types/node": "^22.15.0",
     "typescript": "^5.9.3"
+  },
+  "bin": {
+    "pheme": "dist/cli.js"
   }
 }
